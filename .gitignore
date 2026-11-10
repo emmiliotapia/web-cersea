@@ -1,0 +1,47 @@
+# ==========================================================
+# SEGURIDAD: VARIABLES DE ENTORNO Y SECRETOS (NUNCA SUBIR)
+# ==========================================================
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+!.env.example
+*credentials*.json
+*.pem
+*.key
+
+# ==========================================================
+# DEPENDENCIAS Y COMPILADOS FRONTEND (NODE / VITE)
+# ==========================================================
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# ==========================================================
+# PYTHON / BACKEND
+# ==========================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ==========================================================
+# SISTEMA OPERATIVO, LOGS Y ARCHIVOS TEMPORALES
+# ==========================================================
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+backend/fix_main.py
+backend/patch_smartops_core.py

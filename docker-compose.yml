@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  cersea-pwa:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cersea_pwa
+    restart: unless-stopped
+    ports:
+      - "${CERSEA_PWA_PORT:-3500}:80"
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-https://api-core.smartopsia.com}
+    networks:
+      - cersea_network
+
+networks:
+  cersea_network:
+    driver: bridge
+
