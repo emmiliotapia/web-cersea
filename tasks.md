@@ -3,9 +3,9 @@
 ## 📋 Proyecto: CERSEA WEB & BOT (Centro Cersea)
 
 ### Estado del Proyecto
-- **Cliente:** CERSEA, A.C. (Centro de Rehabilitación Sembrando Amor - San Luis Río Colorado)
+- **Cliente:** CERSEA, A.C. S.C. (Centro de Rehabilitación para Mujeres Sembrando Amor - San Luis Río Colorado)
 - **Arquitecto / Lead:** Emilio Tapia (SmartOps Agency)
-- **Sprint Activo:** Sprint 1 — Completado e Integrado con SmartOps Core VPS
+- **Sprint Activo:** Sprint 1 — Completado y Desplegado en Producción (VPS `/root/smartops-clients/centro-cersea`, Contenedor `cersea_frontend`, Puerto `3500`)
 
 ### Checklist de Implementación
 - [x] Estructura base de documentación creada y sincronizada (`gemini.md`, `humano.md`, `architecture.md`, `api.md`, `database.md`, `errors.md`, `tasks.md`).

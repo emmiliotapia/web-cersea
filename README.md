@@ -34,3 +34,4 @@ Plataforma web clínica informativa, módulo de agendamiento concurrente y asist
    cp .env.example .env
    ```
 2. Ninguna API Key (`OPENAI_API_KEY`) se almacena en el código fuente ni en el repositorio. Se gestionan exclusivamente mediante variables de entorno en el servidor o de forma encriptada/enmascarada desde el endpoint administrativo `/admin`.
+

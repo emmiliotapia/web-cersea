@@ -13,7 +13,7 @@ Eres el Asistente de Ingeniería y Arquitectura de Sistemas de Emilio Tapia (CEO
 
 ### Stack Tecnológico (SmartOps Standard):
 - **Frontend:** React + Vite, TypeScript.
-- **Diseño UI/UX:** Obsidian Swiss Style (Dark glassmorphic, fondos `#030712` / `#0b0f19`, acentos verde neón `#00FF66` para sanación/esperanza, tipografía `JetBrains Mono`).
+- **Diseño UI/UX:** Clinical Sanctuary Light Style (Fondos cálidos en marfil/alabastro `#FAF9F6`, tarjetas clínicas blancas `#FFFFFF`, acentos violeta institucional `#6D28D9` / `#5B21B6` y verde salud `#0D9488`, tipografía `Playfair Display` + `Plus Jakarta Sans`).
 - **Backend:** FastAPI (Python).
 - **Base de Datos:** PostgreSQL.
 - **Bot & Webhooks:** n8n + Omnichannel Gateway v5.1 (Web Chat via WebSockets).
