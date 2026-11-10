@@ -3,18 +3,40 @@
 ## 💾 Proyecto: CERSEA WEB & BOT (Centro Cersea)
 
 ### Motor de Base de Datos
-- **Motor:** PostgreSQL 16+
-- **Extensiones Requeridas:** `uuid-ossp` (y opcionalmente `pgvector` para búsqueda semántica futura en `cersea_knowledge`).
-- **ORM / Migraciones:** SQLAlchemy 2.0 (Async) / Alembic.
-- **Requisito Crítico:** Control de concurrencia transaccional (`SELECT ... FOR UPDATE` o restricciones de unicidad/capacidad por slot) al agendar visitas para evitar colisiones de horario.
+- **Motor:** PostgreSQL 16+ (`smartops_clients_pgvector` -> `multi_tenant_db`)
+- **Extensiones Requeridas:** `uuid-ossp`, `pgvector`.
+- **Requisito Crítico:** Control de concurrencia transaccional (`SELECT ... FOR UPDATE`) tanto al agendar visitas como al descontar créditos mensuales del tenant en `business_configs`.
 
 ---
 
 ### Diagrama Entidad-Relación (Mermaid)
 ```mermaid
 erDiagram
+    BUSINESS_CONFIGS ||--o{ CREDIT_UPSELL_REQUESTS : "solicita ampliacion"
     HORARIOS_DISPONIBLES ||--o{ VISITAS : "asigna / valida slot"
     
+    BUSINESS_CONFIGS {
+        varchar id PK "CERSEA"
+        varchar name
+        jsonb system_prompt_config
+        varchar api_key_override "NULL por defecto (Usa Master Key SmartOps)"
+        int mensajes_limite_mes "Default 1500"
+        int mensajes_consumidos_mes "Default 0"
+        int fecha_renovacion_ciclo "Dia del mes (ej. 10)"
+    }
+
+    CREDIT_UPSELL_REQUESTS {
+        uuid id PK
+        varchar tenant_id
+        varchar solicitante
+        varchar telefono_contacto
+        varchar paquete_solicitado
+        int consumo_actual
+        int limite_actual
+        varchar estado "Pendiente | Aprobado"
+        timestamp created_at
+    }
+
     CERSEA_KNOWLEDGE {
         uuid id PK
         varchar categoria "Ubicaciones | Servicios | Convenios | Contactos | Ingreso"
@@ -26,22 +48,23 @@ erDiagram
 
     VISITAS {
         uuid id PK
+        varchar folio
         varchar nombre_visitante
         varchar telefono
-        varchar nombre_interno_prospecto "Opcional / Referencia para el centro"
-        enum tipo_visita "Primer Ingreso | Familiar"
+        varchar nombre_interno_prospecto
+        varchar tipo_visita "Primer Ingreso | Familiar"
         timestamp fecha_hora
-        enum estado "Pendiente | Confirmada | Cancelada"
+        varchar estado "Pendiente | Confirmada | Cancelada"
         timestamp created_at
     }
 
     HORARIOS_DISPONIBLES {
         uuid id PK
-        int dia_semana "0=Dom, 6=Sab (ej. Sab y Dom)"
-        time hora_inicio "Ej. 10:00:00"
-        time hora_fin "Ej. 16:00:00"
-        int duracion_minutos "Duración del bloque (ej. 30 o 60 min)"
-        int capacidad_maxima "Visitas simultáneas permitidas por bloque"
+        int dia_semana "0=Lun .. 6=Dom"
+        varchar hora_inicio "Ej. 10:00"
+        varchar hora_fin "Ej. 16:00"
+        int duracion_slot_min "60 min"
+        int capacidad_por_slot "Cupos simultaneos"
         boolean activo
     }
 ```
@@ -50,35 +73,23 @@ erDiagram
 
 ### Especificación de Tablas Principales
 
-#### 1. `cersea_knowledge`
-Almacena las preguntas y respuestas predefinidas e información oficial del centro para inyectar al prompt del bot (RAG / Context Injection).
-- **Datos Semilla (Seed Data) clave:**
-  - **Ubicaciones:** Callejón Jalisco y Callejón Oaxaca (San Luis Río Colorado, Sonora).
-  - **Servicios:** Atención psicológica, análisis clínicos, nutrición, educación, doctrina cristiana.
-  - **Convenios:** CUSON, ISEA.
-  - **Contactos Oficiales:** `653 123 2800` / `653 534 6760`.
-
-#### 2. `visitas`
-Almacena las citas de valoración (Primer Ingreso) y visitas familiares agendadas desde el bot o desde el Módulo de Agendamiento UI.
-| Columna | Tipo | Restricciones | Descripción |
+#### 0. `business_configs` (Columnas del Gestor de Créditos Multi-Tenant)
+En la tabla multi-tenant `business_configs` se agregaron las columnas para administrar el servicio "llave en mano" de IA:
+| Columna | Tipo | Default | Descripción |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY DEFAULT uuid_generate_v4()` | Identificador único de la cita |
-| `nombre_visitante` | `VARCHAR(150)` | `NOT NULL` | Nombre completo del familiar o solicitante |
-| `telefono` | `VARCHAR(30)` | `NOT NULL` | Teléfono de contacto (validado) |
-| `nombre_interno_prospecto` | `VARCHAR(150)` | `NULL` | Nombre del interno o prospecto (capturado en flujo conversacional) |
-| `tipo_visita` | `ENUM` | `NOT NULL` | Valores: `'Primer Ingreso'`, `'Familiar'` |
-| `fecha_hora` | `TIMESTAMP WITH TIME ZONE` | `NOT NULL` | Fecha y hora exacta del slot reservado |
-| `estado` | `ENUM` | `NOT NULL DEFAULT 'Pendiente'` | Valores: `'Pendiente'`, `'Confirmada'`, `'Cancelada'` |
-| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT NOW()` | Fecha de creación del registro |
+| `api_key_override` | `VARCHAR(255)` | `NULL` | Si es `NULL`, usa la Master Key de SmartOps en `.env`. |
+| `mensajes_limite_mes` | `INT` | `1500` | Límite mensual de interacciones de IA contratadas por el cliente. |
+| `mensajes_consumidos_mes` | `INT` | `0` | Contador atómico de mensajes respondidos por OpenAI en el ciclo actual. |
+| `fecha_renovacion_ciclo` | `INT` | `10` | Día del mes en que se reinicia el contador de consumo mensual. |
 
-#### 3. `horarios_disponibles`
-Define los bloques de tiempo (slots) que el centro permite para visitas (ej. fines de semana de 10:00 AM a 4:00 PM) y sirve para calcular los slots libres restando las citas activas (`Pendiente` o `Confirmada`) en la tabla `visitas`.
-| Columna | Tipo | Restricciones | Descripción |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY DEFAULT uuid_generate_v4()` | Identificador único de la regla de horario |
-| `dia_semana` | `SMALLINT` | `NOT NULL` | Día permitido (ej. Sábado = 6, Domingo = 0) |
-| `hora_inicio` | `TIME` | `NOT NULL` | Hora de apertura de visitas (ej. `10:00`) |
-| `hora_fin` | `TIME` | `NOT NULL` | Hora de cierre de visitas (ej. `16:00`) |
-| `duracion_slot_min` | `INT` | `NOT NULL DEFAULT 60` | Duración en minutos de cada bloque |
-| `capacidad_por_slot` | `INT` | `NOT NULL DEFAULT 1` | Cupo máximo por bloque horario para control de concurrencia |
-| `activo` | `BOOLEAN` | `NOT NULL DEFAULT TRUE` | Indica si el bloque está habilitado |
+#### 1. `credit_upsell_requests`
+Registra las solicitudes enviadas desde el botón **"Solicitar más créditos"** en `/admin` para incrementar el paquete mensual por `+$500 MXN`.
+
+#### 2. `cersea_knowledge`
+Almacena las preguntas y respuestas predefinidas e información oficial del centro para inyectar al prompt del bot y sincronizar con `document_chunks` (`pgvector`).
+
+#### 3. `visitas`
+Almacena las citas de valoración (`Primer Ingreso`) y visitas familiares (`Familiar`) agendadas desde el bot o desde el Módulo de Agendamiento UI con bloqueo transaccional `FOR UPDATE`.
+
+#### 4. `horarios_disponibles`
+Define los bloques de tiempo que la clínica habilita por día de la semana y su capacidad máxima por bloque horario.

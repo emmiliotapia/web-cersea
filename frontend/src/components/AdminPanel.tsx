@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Key,
+  Sparkles,
   Database,
   Calendar,
   MessageSquare,
@@ -10,12 +10,16 @@ import {
   Trash2,
   CheckCircle2,
   XCircle,
-  Sparkles,
-  Clock
+  Clock,
+  Activity,
+  Zap,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import { cerseaApi } from '../services/api';
 import {
   AgentConfigData,
+  TenantCreditsStatus,
   KnowledgeItem,
   VisitaRecord,
   HorarioConfigItem,
@@ -27,8 +31,10 @@ export const AdminPanel: React.FC = () => {
   const [statusBanner, setStatusBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
   const [agentConfig, setAgentConfig] = useState<AgentConfigData | null>(null);
-  const [newApiKeyInput, setNewApiKeyInput] = useState('');
+  const [creditsStatus, setCreditsStatus] = useState<TenantCreditsStatus | null>(null);
   const [savingAgent, setSavingAgent] = useState(false);
+  const [requestingUpsell, setRequestingUpsell] = useState(false);
+  const [upsellRequestedOk, setUpsellRequestedOk] = useState(false);
 
   const [knowledgeList, setKnowledgeList] = useState<KnowledgeItem[]>([]);
   const [newCat, setNewCat] = useState('Ingreso');
@@ -43,19 +49,21 @@ export const AdminPanel: React.FC = () => {
 
   const notify = (type: 'ok' | 'err', msg: string) => {
     setStatusBanner({ type, msg });
-    setTimeout(() => setStatusBanner(null), 5000);
+    setTimeout(() => setStatusBanner(null), 6000);
   };
 
   const loadAllData = async () => {
     try {
-      const [cfg, know, vis, hor, conv] = await Promise.all([
+      const [cfg, cred, know, vis, hor, conv] = await Promise.all([
         cerseaApi.getAgentConfig(),
+        cerseaApi.getCreditsStatus(),
         cerseaApi.listKnowledge(),
         cerseaApi.listVisitas(),
         cerseaApi.listHorariosConfig(),
         cerseaApi.listConversations()
       ]);
       setAgentConfig(cfg);
+      setCreditsStatus(cred);
       setKnowledgeList(know);
       setVisitasList(vis);
       setHorariosConfig(hor);
@@ -74,18 +82,31 @@ export const AdminPanel: React.FC = () => {
     if (!agentConfig) return;
     setSavingAgent(true);
     try {
-      await cerseaApi.saveAgentConfig({
-        ...agentConfig,
-        custom_openai_api_key: newApiKeyInput.trim() ? newApiKeyInput.trim() : undefined
-      });
-      setNewApiKeyInput('');
+      await cerseaApi.saveAgentConfig(agentConfig);
       const refreshed = await cerseaApi.getAgentConfig();
       setAgentConfig(refreshed);
-      notify('ok', 'Configuración del Agente y API Key guardada correctamente.');
+      notify('ok', 'Configuración del asistente virtual guardada correctamente.');
     } catch (err: any) {
       notify('err', err.message || 'Error guardando configuración');
     } finally {
       setSavingAgent(false);
+    }
+  };
+
+  const handleRequestUpsell = async () => {
+    setRequestingUpsell(true);
+    try {
+      const res = await cerseaApi.requestCreditsUpsell({
+        solicitante: 'Administración CERSEA, A.C.',
+        telefono_contacto: '653 123 2800',
+        paquete_solicitado: '+1,000 créditos adicionales por $500 MXN'
+      });
+      setUpsellRequestedOk(true);
+      notify('ok', res.message || 'Solicitud enviada a SmartOps. En breve ampliaremos tu paquete de créditos.');
+    } catch (err: any) {
+      notify('err', err.message || 'Error al solicitar más créditos');
+    } finally {
+      setRequestingUpsell(false);
     }
   };
 
@@ -103,7 +124,7 @@ export const AdminPanel: React.FC = () => {
       setNewResp('');
       const updated = await cerseaApi.listKnowledge();
       setKnowledgeList(updated);
-      notify('ok', 'Pregunta agregada. Presiona "Sincronizar Vectores RAG" para indexarla en el bot.');
+      notify('ok', 'Pregunta agregada. Presiona "Sincronizar Memoria del Chatbot (RAG)" para indexarla.');
     } catch (err: any) {
       notify('err', err.message);
     }
@@ -159,19 +180,25 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  const usados = creditsStatus?.mensajes_consumidos_mes ?? 0;
+  const limite = creditsStatus?.mensajes_limite_mes ?? 1500;
+  const porcentaje = creditsStatus?.porcentaje_uso ?? Math.min(100, Math.round((usados / Math.max(limite, 1)) * 100));
+  const isNearLimit = porcentaje >= 80;
+  const isOut = usados >= limite;
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Encabezado del Panel */}
       <div className="clinical-card-highlight rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-[#6D28D9] mb-2">
-            Panel Administrativo • CERSEA A.C. S.C.
+            Panel Administrativo • CERSEA, A.C. S.C.
           </span>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
-            Gestión del Asistente Virtual y Agenda Clínica
+            Gestión de Atención Automatizada y Agenda Clínica
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Administra la OpenAI API Key, las preguntas frecuentes del chatbot, las citas agendadas y el historial de conversaciones.
+            Monitorea tus interacciones de IA del mes, administra las respuestas frecuentes de la clínica y gestiona las citas de valoración familiar.
           </p>
         </div>
 
@@ -182,6 +209,88 @@ export const AdminPanel: React.FC = () => {
           <RefreshCw className="w-4 h-4" />
           <span>Actualizar Panel</span>
         </button>
+      </div>
+
+      {/* DASHBOARD DE CONSUMO DE IA (SERVICIO LLAVE EN MANO SMARTOPS) */}
+      <div className="clinical-card rounded-3xl p-6 sm:p-8 border-2 border-purple-200/80 bg-white shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2 flex-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-[#0D9488] border border-emerald-200">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Servicio IA Llave en Mano Activo
+              </span>
+              <span className="text-xs font-semibold text-slate-500">
+                Renovación automática: Día {creditsStatus?.fecha_renovacion_ciclo ?? 10} de cada mes
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2 pt-1">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2">
+                <Activity className="w-5 h-5 text-[#6D28D9]" />
+                <span>
+                  Interacciones de IA este mes:{' '}
+                  <strong className="text-[#6D28D9]">
+                    {usados.toLocaleString('es-MX')} / {limite.toLocaleString('es-MX')}
+                  </strong>
+                </span>
+              </h2>
+              <span className="text-xs font-bold text-slate-600">
+                {creditsStatus?.mensajes_restantes?.toLocaleString('es-MX') ?? (limite - usados)} interacciones disponibles ({porcentaje}% utilizado)
+              </span>
+            </div>
+
+            {/* Barra de Progreso Visual */}
+            <div className="w-full h-4 rounded-full bg-slate-100 border border-slate-200 overflow-hidden p-0.5">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  isOut
+                    ? 'bg-red-500'
+                    : isNearLimit
+                    ? 'bg-amber-500'
+                    : 'bg-gradient-to-r from-[#6D28D9] to-[#0D9488]'
+                }`}
+                style={{ width: `${Math.max(2, Math.min(100, porcentaje))}%` }}
+              />
+            </div>
+
+            {isOut ? (
+              <p className="text-xs font-semibold text-red-600 flex items-center gap-1.5 pt-1">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                Has alcanzado el límite mensual. El bot responde automáticamente redirigiendo a las familias al teléfono 653 123 2800.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 pt-0.5">
+                Cada respuesta generada por el asistente virtual a las familias cuenta como 1 interacción. Infraestructura IA gestionada por SmartOps.
+              </p>
+            )}
+          </div>
+
+          {/* Botón de Upsell */}
+          <div className="lg:border-l lg:border-slate-200 lg:pl-6 flex flex-col justify-center items-start lg:items-end shrink-0 space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              ¿Necesitas ampliar tu capacidad este mes?
+            </span>
+            <button
+              type="button"
+              onClick={handleRequestUpsell}
+              disabled={requestingUpsell}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs font-bold text-white bg-gradient-to-r from-[#6D28D9] to-[#0D9488] hover:opacity-95 shadow-md shadow-purple-500/15 transition-all cursor-pointer disabled:opacity-60"
+            >
+              <Zap className="w-4 h-4" />
+              <span>
+                {requestingUpsell
+                  ? 'Enviando solicitud...'
+                  : upsellRequestedOk
+                  ? 'Solicitud enviada • Solicitar de nuevo'
+                  : 'Solicitar más créditos'}
+              </span>
+            </button>
+            <span className="text-[11px] text-slate-500 font-medium">
+              Paquete de expansión inmediata por <strong className="text-slate-700">$500 MXN extra</strong>
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Notificación Flotante */}
@@ -203,7 +312,7 @@ export const AdminPanel: React.FC = () => {
       {/* Pestañas de Navegación */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { id: 'agent', label: '1. API Key y Asistente', icon: Key },
+          { id: 'agent', label: '1. Asistente e Instrucciones', icon: Sparkles },
           { id: 'knowledge', label: `2. Base de Conocimiento (${knowledgeList.length})`, icon: Database },
           { id: 'visitas', label: `3. Citas y Horarios (${visitasList.length})`, icon: Calendar },
           { id: 'logs', label: `4. Conversaciones (${conversations.length})`, icon: MessageSquare }
@@ -227,17 +336,17 @@ export const AdminPanel: React.FC = () => {
         })}
       </div>
 
-      {/* CONTENIDO PESTAÑA 1: CONFIGURACIÓN DEL AGENTE & API KEY */}
+      {/* CONTENIDO PESTAÑA 1: PERSONALIDAD E INSTRUCCIONES DEL AGENTE */}
       {activeTab === 'agent' && agentConfig && (
         <form onSubmit={handleSaveAgentConfig} className="clinical-card rounded-3xl p-6 sm:p-8 space-y-6">
           <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-[#6D28D9]" />
-                Credenciales OpenAI y Personalidad del Asistente
+                Personalidad, Bienvenida e Instrucciones del Asistente
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Usa la API Key maestra de SmartOps o ingresa una API Key propia para el centro CERSEA.
+                Ajusta el mensaje de bienvenida y las directrices humanistas y cristianas con las que el asistente orienta a las familias.
               </p>
             </div>
             <button
@@ -246,86 +355,10 @@ export const AdminPanel: React.FC = () => {
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#6D28D9] to-[#0D9488] hover:opacity-95 shadow-md cursor-pointer"
             >
               <Save className="w-4 h-4" />
-              <span>{savingAgent ? 'Guardando...' : 'Guardar Configuración'}</span>
+              <span>{savingAgent ? 'Guardando...' : 'Guardar Cambios'}</span>
             </button>
           </div>
 
-          {/* Bloque de Selección de API Key */}
-          <div className="p-5 rounded-2xl bg-purple-50/50 border border-purple-200/80 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <span className="text-xs font-bold text-[#6D28D9] uppercase tracking-wider block">
-                  Conexión con OpenAI API
-                </span>
-                <p className="text-xs text-slate-600 mt-0.5">
-                  Modo activo:{' '}
-                  <strong className="text-slate-900">
-                    {agentConfig.use_master_api_key
-                      ? 'API Key Maestra del Servidor (SmartOps)'
-                      : `API Key Propia del Cliente (${agentConfig.masked_custom_api_key || 'Sin configurar'})`}
-                  </strong>
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAgentConfig({ ...agentConfig, use_master_api_key: true })}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                    agentConfig.use_master_api_key
-                      ? 'bg-[#6D28D9] text-white border-[#6D28D9]'
-                      : 'bg-white text-slate-600 border-slate-200'
-                  }`}
-                >
-                  Usar Key SmartOps
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAgentConfig({ ...agentConfig, use_master_api_key: false })}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                    !agentConfig.use_master_api_key
-                      ? 'bg-[#6D28D9] text-white border-[#6D28D9]'
-                      : 'bg-white text-slate-600 border-slate-200'
-                  }`}
-                >
-                  Usar Key Propia CERSEA
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Subir / Actualizar OpenAI API Key del Cliente (sk-...)
-                </label>
-                <input
-                  type="password"
-                  value={newApiKeyInput}
-                  onChange={(e) => setNewApiKeyInput(e.target.value)}
-                  placeholder={
-                    agentConfig.has_custom_api_key
-                      ? `Key guardada: ${agentConfig.masked_custom_api_key} (escribe otra para reemplazarla)`
-                      : 'Pega aquí la API Key sk-proj-... cuando el cliente tenga la suya'
-                  }
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-[#6D28D9]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Modelo de IA</label>
-                <select
-                  value={agentConfig.model}
-                  onChange={(e) => setAgentConfig({ ...agentConfig, model: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:outline-none focus:border-[#6D28D9]"
-                >
-                  <option value="gpt-4o-mini">gpt-4o-mini (Recomendado / Rápido)</option>
-                  <option value="gpt-4o">gpt-4o (Avanzado)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Configuración de Mensaje de Bienvenida, Rol y Tono */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -366,7 +399,7 @@ export const AdminPanel: React.FC = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Instrucciones del Asistente (System Prompt)
+              Instrucciones Operativas del Asistente
             </label>
             <textarea
               rows={6}

@@ -1,11 +1,13 @@
 """
-Router de API para CERSEA, A.C. (Público + Panel de Control del Agente)
-=======================================================================
+Router de API para CERSEA, A.C. (Público + Panel Administrativo Llave en Mano)
+==============================================================================
 Expone los endpoints REST para:
 1. Agendamiento público de visitas y consulta de horarios disponibles.
-2. Administración de `cersea_knowledge` y sincronización de vectores RAG (`pgvector`).
-3. Configuración del Agente (System Prompt, Temperatura, Modelo y OpenAI API Key propia).
-4. Gestión de citas (`visitas`) y monitoreo de conversaciones (`chat_histories`).
+2. Dashboard de Consumo de Créditos IA (`mensajes_consumidos_mes` / `mensajes_limite_mes`)
+   y botón de Upsell (`POST /api/cersea/credits/request-upsell` -> Webhook SmartOps).
+3. Administración de `cersea_knowledge` y sincronización de vectores RAG (`pgvector`).
+4. Configuración de personalidad del Agente (sin exponer API Keys al cliente).
+5. Gestión de citas (`visitas`) y monitoreo de conversaciones (`chat_histories`).
 """
 
 import json
@@ -22,7 +24,9 @@ from app.services.cersea_service import (
     init_cersea_tables_and_seed,
     sync_knowledge_to_rag_vectors,
     get_available_slots_for_date,
-    book_visita_concurrent_safe
+    book_visita_concurrent_safe,
+    get_tenant_credits_status,
+    trigger_upsell_webhook
 )
 
 router = APIRouter(prefix="/api/cersea", tags=["CERSEA Web & Bot"])
@@ -44,14 +48,14 @@ class CreateVisitaPayload(BaseModel):
     nombre_visitante: str
     telefono: str
     nombre_interno_prospecto: Optional[str] = None
-    tipo_visita: str = "Familiar"  # 'Primer Ingreso' | 'Familiar'
-    fecha_hora: str                # ISO 8601 ej. '2026-11-14T10:00:00-07:00'
+    tipo_visita: str = "Familiar"
+    fecha_hora: str
     notas: Optional[str] = None
     origen: Optional[str] = "web"
 
 
 class UpdateVisitaEstadoPayload(BaseModel):
-    estado: str  # 'Pendiente' | 'Confirmada' | 'Cancelada'
+    estado: str
 
 
 class KnowledgeItemPayload(BaseModel):
@@ -77,14 +81,17 @@ class AgentConfigPayload(BaseModel):
     objective: str
     welcome_message: str
     custom_instructions: str
-    model: str = "gpt-4o-mini"
-    temperature: float = 0.2
-    use_master_api_key: bool = True
-    custom_openai_api_key: Optional[str] = None  # Si se envía vacío o '***', se conserva la existente
+
+
+class UpsellRequestPayload(BaseModel):
+    solicitante: Optional[str] = "Administración CERSEA, A.C."
+    telefono_contacto: Optional[str] = "653 534 6760"
+    paquete: Optional[str] = "+1,000 créditos IA ($500 MXN)"
+    notas: Optional[str] = ""
 
 
 # =====================================================================
-# 1. INICIALIZACIÓN Y ESTADO DEL MÓDULO
+# 1. INICIALIZACIÓN, SALUD Y GESTOR DE CRÉDITOS IA
 # =====================================================================
 
 @router.get("/health")
@@ -96,6 +103,7 @@ def cersea_health(db: Session = Depends(get_db)):
         text("SELECT COUNT(*) FROM document_chunks WHERE business_id = :tid"),
         {"tid": TENANT_ID}
     ).scalar() or 0
+    credits = get_tenant_credits_status(db, TENANT_ID)
 
     return {
         "status": "ok",
@@ -105,8 +113,33 @@ def cersea_health(db: Session = Depends(get_db)):
             "total_visitas": total_visitas,
             "knowledge_items": total_knowledge,
             "rag_vectors": total_vectors
-        }
+        },
+        "credits": credits
     }
+
+
+@router.get("/credits")
+def obtener_estado_creditos(db: Session = Depends(get_db)):
+    """
+    Devuelve el consumo mensual de interacciones IA (`mensajes_consumidos_mes` / `mensajes_limite_mes`)
+    y la fecha de renovación del ciclo para el Dashboard del cliente en `/admin`.
+    """
+    return get_tenant_credits_status(db, TENANT_ID)
+
+
+@router.post("/credits/request-upsell")
+def solicitar_mas_creditos(payload: UpsellRequestPayload, db: Session = Depends(get_db)):
+    """
+    Botón de Upsell en `/admin`: Registra la solicitud de +1,000 créditos por $500 MXN
+    y envía el webhook/notificación a Emilio (SmartOps Agency).
+    """
+    return trigger_upsell_webhook(
+        db=db,
+        solicitante=payload.solicitante or "Administración CERSEA, A.C.",
+        telefono_contacto=payload.telefono_contacto or "653 534 6760",
+        paquete=payload.paquete or "+1,000 créditos IA ($500 MXN)",
+        notas=payload.notas or ""
+    )
 
 
 # =====================================================================
@@ -331,7 +364,7 @@ def sincronizar_rag_cersea(db: Session = Depends(get_db)):
 
 
 # =====================================================================
-# 5. CONFIGURACIÓN DEL AGENTE Y GESTIÓN DE API KEY (PANEL DEL CLIENTE)
+# 5. CONFIGURACIÓN DEL ASISTENTE (SERVICIO LLAVE EN MANO SIN API KEY)
 # =====================================================================
 
 @router.get("/agent-config")
@@ -347,24 +380,16 @@ def obtener_agent_config(db: Session = Depends(get_db)):
         stored = row[2] if isinstance(row[2], dict) else json.loads(row[2])
         cfg.update(stored)
 
-    raw_key = (cfg.get("custom_openai_api_key") or "").strip()
-    masked_key = f"{raw_key[:7]}...{raw_key[-4:]}" if len(raw_key) > 12 else ("" if not raw_key else "sk-***")
-
     return {
         "tenant_id": TENANT_ID,
-        "name": row[0] if row else "CERSEA, A.C.",
+        "name": row[0] if row else "CERSEA, A.C. S.C.",
         "role": cfg.get("role", DEFAULT_CERSEA_PROMPT_CONFIG["role"]),
         "tone": cfg.get("tone", DEFAULT_CERSEA_PROMPT_CONFIG["tone"]),
         "mission": cfg.get("mission", DEFAULT_CERSEA_PROMPT_CONFIG["mission"]),
         "vision": cfg.get("vision", DEFAULT_CERSEA_PROMPT_CONFIG["vision"]),
         "objective": cfg.get("objective", DEFAULT_CERSEA_PROMPT_CONFIG["objective"]),
         "welcome_message": cfg.get("welcome_message", DEFAULT_CERSEA_PROMPT_CONFIG["welcome_message"]),
-        "custom_instructions": cfg.get("custom_instructions", DEFAULT_CERSEA_PROMPT_CONFIG["custom_instructions"]),
-        "model": cfg.get("model", "gpt-4o-mini"),
-        "temperature": float(cfg.get("temperature", 0.2)),
-        "use_master_api_key": bool(cfg.get("use_master_api_key", True)),
-        "has_custom_api_key": bool(raw_key),
-        "masked_custom_api_key": masked_key
+        "custom_instructions": cfg.get("custom_instructions", DEFAULT_CERSEA_PROMPT_CONFIG["custom_instructions"])
     }
 
 
@@ -381,16 +406,6 @@ def guardar_agent_config(payload: AgentConfigPayload, db: Session = Depends(get_
         stored = row[0] if isinstance(row[0], dict) else json.loads(row[0])
         current_cfg.update(stored)
 
-    # Preservar la API key existente si no se envió una nueva explícita
-    existing_key = current_cfg.get("custom_openai_api_key", "")
-    new_key = existing_key
-    if payload.custom_openai_api_key is not None:
-        candidate = payload.custom_openai_api_key.strip()
-        if candidate == "CLEAR":
-            new_key = ""
-        elif candidate and "..." not in candidate and "***" not in candidate:
-            new_key = candidate
-
     updated_cfg = {
         **current_cfg,
         "role": payload.role,
@@ -399,11 +414,7 @@ def guardar_agent_config(payload: AgentConfigPayload, db: Session = Depends(get_
         "vision": payload.vision,
         "objective": payload.objective,
         "welcome_message": payload.welcome_message,
-        "custom_instructions": payload.custom_instructions,
-        "model": payload.model,
-        "temperature": payload.temperature,
-        "use_master_api_key": payload.use_master_api_key,
-        "custom_openai_api_key": new_key
+        "custom_instructions": payload.custom_instructions
     }
 
     db.execute(text("""
@@ -417,7 +428,7 @@ def guardar_agent_config(payload: AgentConfigPayload, db: Session = Depends(get_
         "tid": TENANT_ID
     })
     db.commit()
-    return {"status": "saved", "tenant_id": TENANT_ID, "use_master_api_key": payload.use_master_api_key}
+    return {"status": "saved", "tenant_id": TENANT_ID}
 
 
 # =====================================================================
@@ -444,4 +455,3 @@ def listar_conversaciones_cersea(limit: int = 80, db: Session = Depends(get_db))
         }
         for r in reversed(rows)
     ]
-

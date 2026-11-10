@@ -64,10 +64,22 @@ export interface AgentConfigData {
   custom_instructions: string;
   model: string;
   temperature: number;
-  use_master_api_key: boolean;
-  has_custom_api_key: boolean;
-  masked_custom_api_key: string;
-  custom_openai_api_key?: string;
+  mensajes_limite_mes?: number;
+  mensajes_consumidos_mes?: number;
+  fecha_renovacion_ciclo?: number;
+}
+
+export interface TenantCreditsStatus {
+  tenant_id: string;
+  tenant_name: string;
+  mensajes_limite_mes: number;
+  mensajes_consumidos_mes: number;
+  mensajes_restantes: number;
+  porcentaje_uso: number;
+  fecha_renovacion_ciclo: number;
+  usa_master_key: boolean;
+  plan_nombre: string;
+  upsell_oferta: string;
 }
 
 export interface ConversationMessage {
@@ -77,4 +89,3 @@ export interface ConversationMessage {
   content: string;
   timestamp: string;
 }
-

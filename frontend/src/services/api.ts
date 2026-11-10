@@ -4,6 +4,7 @@ import {
   VisitaRecord,
   KnowledgeItem,
   AgentConfigData,
+  TenantCreditsStatus,
   ConversationMessage
 } from '../types/cersea';
 
@@ -157,6 +158,35 @@ export const cerseaApi = {
     return res.json();
   },
 
+  async getCreditsStatus(): Promise<TenantCreditsStatus> {
+    const res = await fetch(`${getApiBaseUrl()}/api/cersea/credits`);
+    if (!res.ok) throw new Error('Error al consultar consumo de IA');
+    return res.json();
+  },
+
+  async requestCreditsUpsell(payload?: {
+    solicitante?: string;
+    telefono_contacto?: string;
+    paquete_solicitado?: string;
+    notas?: string;
+  }) {
+    const res = await fetch(`${getApiBaseUrl()}/api/cersea/credits/request-upsell`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        solicitante: payload?.solicitante || 'Administración CERSEA, A.C.',
+        telefono_contacto: payload?.telefono_contacto || '653 123 2800',
+        paquete_solicitado: payload?.paquete_solicitado || '+1,000 mensajes adicionales ($500 MXN)',
+        notas: payload?.notas || 'Solicitud enviada desde el Dashboard de Consumo en /admin'
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error al enviar solicitud de créditos');
+    }
+    return res.json();
+  },
+
   async listConversations(): Promise<ConversationMessage[]> {
     const res = await fetch(`${getApiBaseUrl()}/api/cersea/conversations`);
     if (!res.ok) throw new Error('Error al cargar historial de conversaciones');
@@ -173,4 +203,3 @@ export const cerseaApi = {
     return res.json();
   }
 };
-

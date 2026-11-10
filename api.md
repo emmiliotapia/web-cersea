@@ -44,7 +44,7 @@
 {
   "nombre_visitante": "María López",
   "telefono": "6531234567",
-  "nombre_interno_prospecto": "Juan Pérez",
+  "nombre_interno_prospecto": "Ana Pérez",
   "tipo_visita": "Primer Ingreso",
   "fecha_hora": "2026-11-14T10:00:00-07:00"
 }
@@ -52,20 +52,28 @@
 
 ---
 
-### Endpoints del Panel de Control del Chatbot (`#admin`)
+### Endpoints del Panel Administrativo (`/admin` — Modelo SaaS Llave en Mano)
 
-#### 4. Configuración del Agente y OpenAI API Key
-- **`GET /api/cersea/agent-config`**: Obtiene el `role`, `tone`, `welcome_message`, `custom_instructions`, `model`, `temperature`, `use_master_api_key` (usa la key del VPS SmartOps o la propia del cliente) y vista enmascarada de `custom_openai_api_key`.
-- **`PUT /api/cersea/agent-config`**: Actualiza los parámetros del agente y permite subir/cambiar la OpenAI API Key exclusiva del cliente CERSEA sin exponerla en texto plano.
+#### 4. Gestor de Créditos de IA y Webhook de Upsell
+- **`GET /api/cersea/credits`**: Devuelve el consumo mensual del tenant (`mensajes_consumidos_mes`, `mensajes_limite_mes`, `mensajes_restantes`, `porcentaje_uso`, `fecha_renovacion_ciclo`).
+  - **Lógica en el Middleware (`/chat` y Omnichannel Gateway):**
+    - Antes de invocar a OpenAI, verifica `if mensajes_consumidos_mes < mensajes_limite_mes`:
+      - **Con saldo:** Llama a OpenAI usando la Master API Key de SmartOps (o `api_key_override` si fue definido internamente en BD) e incrementa `mensajes_consumidos_mes` en `+1`.
+      - **Sin saldo (Fallback por Saturación):** Intercepta la petición sin consumir tokens y devuelve: `"Por el momento nuestra línea de atención automatizada está saturada. Por favor, comunícate al 653 123 2800 o déjanos tus datos y te contactaremos."`
+- **`POST /api/cersea/credits/request-upsell`**: Registra una solicitud de ampliación de plan en `credit_upsell_requests` y dispara el webhook hacia SmartOps (`n8n` + alerta `ntfy`) para ampliar el paquete por `+$500 MXN`.
 
-#### 5. Gestión de Base de Conocimiento (`cersea_knowledge`) y Sincronización `pgvector`
+#### 5. Configuración de Personalidad e Instrucciones del Agente
+- **`GET /api/cersea/agent-config`**: Obtiene `role`, `tone`, `welcome_message` y `custom_instructions` del asistente (sin exponer credenciales de API Key al cliente).
+- **`PUT /api/cersea/agent-config`**: Actualiza el mensaje de bienvenida, rol, tono e instrucciones operativas del asistente.
+
+#### 6. Gestión de Base de Conocimiento (`cersea_knowledge`) y Sincronización `pgvector`
 - **`GET /api/cersea/knowledge`**: Lista todas las preguntas y respuestas institucionales.
 - **`POST /api/cersea/knowledge`**: Crea un nuevo bloque de conocimiento.
 - **`PUT /api/cersea/knowledge/{item_id}`**: Edita una pregunta/respuesta.
 - **`DELETE /api/cersea/knowledge/{item_id}`**: Elimina un registro.
 - **`POST /api/cersea/knowledge/sync-rag`**: Genera embeddings con OpenAI (`text-embedding-3-small`) de toda la tabla `cersea_knowledge` e indexa los vectores en `documents` y `document_chunks` (`pgvector`) bajo `business_id = 'CERSEA'`.
 
-#### 6. Administración de Visitas, Horarios e Historial
+#### 7. Administración de Visitas, Horarios e Historial
 - **`GET /api/cersea/visitas`**: Lista las citas agendadas.
 - **`PATCH /api/cersea/visitas/{visita_id}/estado`**: Cambia el estado (`Pendiente`, `Confirmada`, `Cancelada`).
 - **`GET /api/cersea/horarios/config`** & **`PUT /api/cersea/horarios/config/{dia_semana}`**: Administra los días y horas habilitadas en `horarios_disponibles`.
