@@ -73,7 +73,7 @@ export function App() {
               onOpenChatWithPrompt={handleOpenChatWithPrompt}
               onScrollToBooking={handleScrollToBooking}
             />
-            <BookingCalendar />
+            <BookingCalendar onOpenChatWithPrompt={handleOpenChatWithPrompt} />
           </>
         ) : (
           <AdminPanel />

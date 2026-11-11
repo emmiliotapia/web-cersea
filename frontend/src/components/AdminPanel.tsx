@@ -8,9 +8,6 @@ import {
   RefreshCw,
   Plus,
   Trash2,
-  CheckCircle2,
-  XCircle,
-  Clock,
   Activity,
   Zap,
   ShieldCheck,
@@ -23,11 +20,14 @@ import {
   KnowledgeItem,
   VisitaRecord,
   HorarioConfigItem,
+  McpToolSchema,
   ConversationMessage
 } from '../types/cersea';
+import { AdminAgendaManager } from './AdminAgendaManager';
+import { ChatMarkdownRenderer } from './ChatMarkdownRenderer';
 
 export const AdminPanel: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'agent' | 'knowledge' | 'visitas' | 'logs'>('agent');
+  const [activeTab, setActiveTab] = useState<'visitas' | 'agent' | 'knowledge' | 'logs'>('visitas');
   const [statusBanner, setStatusBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
   const [agentConfig, setAgentConfig] = useState<AgentConfigData | null>(null);
@@ -44,6 +44,7 @@ export const AdminPanel: React.FC = () => {
 
   const [visitasList, setVisitasList] = useState<VisitaRecord[]>([]);
   const [horariosConfig, setHorariosConfig] = useState<HorarioConfigItem[]>([]);
+  const [mcpTools, setMcpTools] = useState<McpToolSchema[]>([]);
 
   const [conversations, setConversations] = useState<ConversationMessage[]>([]);
 
@@ -54,13 +55,14 @@ export const AdminPanel: React.FC = () => {
 
   const loadAllData = async () => {
     try {
-      const [cfg, cred, know, vis, hor, conv] = await Promise.all([
+      const [cfg, cred, know, vis, hor, conv, mcpRes] = await Promise.all([
         cerseaApi.getAgentConfig(),
         cerseaApi.getCreditsStatus(),
         cerseaApi.listKnowledge(),
         cerseaApi.listVisitas(),
         cerseaApi.listHorariosConfig(),
-        cerseaApi.listConversations()
+        cerseaApi.listConversations(),
+        cerseaApi.listMcpTools().catch(() => ({ server: 'cersea-agenda-mcp', version: '1.0.0', tools: [] }))
       ]);
       setAgentConfig(cfg);
       setCreditsStatus(cred);
@@ -68,6 +70,7 @@ export const AdminPanel: React.FC = () => {
       setVisitasList(vis);
       setHorariosConfig(hor);
       setConversations(conv);
+      setMcpTools(mcpRes.tools || []);
     } catch (e: any) {
       notify('err', e.message || 'Error al cargar datos del panel');
     }
@@ -152,37 +155,10 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleEstadoVisita = async (id: string, estado: 'Pendiente' | 'Confirmada' | 'Cancelada') => {
-    try {
-      await cerseaApi.updateVisitaEstado(id, estado);
-      const updated = await cerseaApi.listVisitas();
-      setVisitasList(updated);
-      notify('ok', `Visita actualizada a estado: ${estado}`);
-    } catch (err: any) {
-      notify('err', err.message);
-    }
-  };
-
-  const handleToggleDiaHorario = async (item: HorarioConfigItem) => {
-    try {
-      await cerseaApi.updateHorarioDia(item.dia_semana, {
-        hora_inicio: item.hora_inicio,
-        hora_fin: item.hora_fin,
-        duracion_slot_min: item.duracion_slot_min,
-        capacidad_por_slot: item.capacidad_por_slot,
-        activo: !item.activo
-      });
-      const updated = await cerseaApi.listHorariosConfig();
-      setHorariosConfig(updated);
-      notify('ok', `Horario de ${item.nombre_dia} actualizado.`);
-    } catch (err: any) {
-      notify('err', err.message);
-    }
-  };
-
   const usados = creditsStatus?.mensajes_consumidos_mes ?? 0;
   const limite = creditsStatus?.mensajes_limite_mes ?? 1500;
-  const porcentaje = creditsStatus?.porcentaje_uso ?? Math.min(100, Math.round((usados / Math.max(limite, 1)) * 100));
+  const porcentaje =
+    creditsStatus?.porcentaje_uso ?? Math.min(100, Math.round((usados / Math.max(limite, 1)) * 100));
   const isNearLimit = porcentaje >= 80;
   const isOut = usados >= limite;
 
@@ -195,10 +171,10 @@ export const AdminPanel: React.FC = () => {
             Panel Administrativo • CERSEA, A.C. S.C.
           </span>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
-            Gestión de Atención Automatizada y Agenda Clínica
+            Gestión de Agendas, Citas y Asistente MCP
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Monitorea tus interacciones de IA del mes, administra las respuestas frecuentes de la clínica y gestiona las citas de valoración familiar.
+            Administra y reprograma las citas agendadas, configura horarios/cupos por día, monitorea tus créditos de IA y gestiona la memoria del bot.
           </p>
         </div>
 
@@ -218,7 +194,7 @@ export const AdminPanel: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-[#0D9488] border border-emerald-200">
                 <ShieldCheck className="w-3.5 h-3.5" />
-                Servicio IA Llave en Mano Activo
+                Servicio IA Llave en Mano + MCP Server Activo
               </span>
               <span className="text-xs font-semibold text-slate-500">
                 Renovación automática: Día {creditsStatus?.fecha_renovacion_ciclo ?? 10} de cada mes
@@ -236,11 +212,11 @@ export const AdminPanel: React.FC = () => {
                 </span>
               </h2>
               <span className="text-xs font-bold text-slate-600">
-                {creditsStatus?.mensajes_restantes?.toLocaleString('es-MX') ?? (limite - usados)} interacciones disponibles ({porcentaje}% utilizado)
+                {creditsStatus?.mensajes_restantes?.toLocaleString('es-MX') ?? limite - usados} interacciones
+                disponibles ({porcentaje}% utilizado)
               </span>
             </div>
 
-            {/* Barra de Progreso Visual */}
             <div className="w-full h-4 rounded-full bg-slate-100 border border-slate-200 overflow-hidden p-0.5">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
@@ -266,7 +242,6 @@ export const AdminPanel: React.FC = () => {
             )}
           </div>
 
-          {/* Botón de Upsell */}
           <div className="lg:border-l lg:border-slate-200 lg:pl-6 flex flex-col justify-center items-start lg:items-end shrink-0 space-y-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
               ¿Necesitas ampliar tu capacidad este mes?
@@ -309,12 +284,12 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* Pestañas de Navegación */}
+      {/* Pestañas de Navegación (Agenda como Primera Pestaña para Gestión Rápida) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { id: 'agent', label: '1. Asistente e Instrucciones', icon: Sparkles },
-          { id: 'knowledge', label: `2. Base de Conocimiento (${knowledgeList.length})`, icon: Database },
-          { id: 'visitas', label: `3. Citas y Horarios (${visitasList.length})`, icon: Calendar },
+          { id: 'visitas', label: `1. Gestión de Agendas y Citas (${visitasList.length})`, icon: Calendar },
+          { id: 'agent', label: '2. Asistente e Instrucciones', icon: Sparkles },
+          { id: 'knowledge', label: `3. Base de Conocimiento (${knowledgeList.length})`, icon: Database },
           { id: 'logs', label: `4. Conversaciones (${conversations.length})`, icon: MessageSquare }
         ].map((tab) => {
           const Icon = tab.icon;
@@ -336,7 +311,18 @@ export const AdminPanel: React.FC = () => {
         })}
       </div>
 
-      {/* CONTENIDO PESTAÑA 1: PERSONALIDAD E INSTRUCCIONES DEL AGENTE */}
+      {/* CONTENIDO PESTAÑA 1: GESTIÓN Y MANIPULACIÓN DE AGENDAS, HORARIOS Y MCP SERVER */}
+      {activeTab === 'visitas' && (
+        <AdminAgendaManager
+          visitasList={visitasList}
+          horariosConfig={horariosConfig}
+          mcpTools={mcpTools}
+          onRefresh={loadAllData}
+          notify={notify}
+        />
+      )}
+
+      {/* CONTENIDO PESTAÑA 2: PERSONALIDAD E INSTRUCCIONES DEL AGENTE */}
       {activeTab === 'agent' && agentConfig && (
         <form onSubmit={handleSaveAgentConfig} className="clinical-card rounded-3xl p-6 sm:p-8 space-y-6">
           <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -413,7 +399,7 @@ export const AdminPanel: React.FC = () => {
         </form>
       )}
 
-      {/* CONTENIDO PESTAÑA 2: BASE DE CONOCIMIENTO */}
+      {/* CONTENIDO PESTAÑA 3: BASE DE CONOCIMIENTO */}
       {activeTab === 'knowledge' && (
         <div className="space-y-6">
           <div className="clinical-card rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -523,120 +509,6 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
-      {/* CONTENIDO PESTAÑA 3: VISITAS AGENDADAS Y HORARIOS */}
-      {activeTab === 'visitas' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 clinical-card rounded-3xl p-6 space-y-4">
-            <h2 className="text-lg font-bold text-slate-900">
-              Citas y Visitas Registradas (`visitas`)
-            </h2>
-            {visitasList.length === 0 ? (
-              <p className="text-xs text-slate-500 py-8 text-center">
-                Aún no hay visitas registradas.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {visitasList.map((v) => (
-                  <div
-                    key={v.id}
-                    className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-[#6D28D9]">
-                          {v.folio}
-                        </span>
-                        <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-purple-50 text-[#5B21B6] border border-purple-200">
-                          {v.tipo_visita}
-                        </span>
-                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-600">
-                          vía {v.origen}
-                        </span>
-                      </div>
-                      <p className="text-sm font-bold text-slate-900">
-                        Familiar: {v.nombre_visitante} •{' '}
-                        <span className="text-xs font-semibold text-[#0D9488]">{v.telefono}</span>
-                      </p>
-                      <p className="text-xs text-slate-600">
-                        Interna/Prospecto: <strong>{v.nombre_interno_prospecto}</strong> | Fecha y Hora:{' '}
-                        {v.fecha_hora ? new Date(v.fecha_hora).toLocaleString('es-MX') : ''}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-bold ${
-                          v.estado === 'Confirmada'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : v.estado === 'Cancelada'
-                            ? 'bg-red-50 text-red-600 border border-red-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}
-                      >
-                        {v.estado}
-                      </span>
-                      {v.estado !== 'Confirmada' && (
-                        <button
-                          onClick={() => handleEstadoVisita(v.id, 'Confirmada')}
-                          className="p-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 cursor-pointer"
-                          title="Confirmar visita"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      {v.estado !== 'Cancelada' && (
-                        <button
-                          onClick={() => handleEstadoVisita(v.id, 'Cancelada')}
-                          className="p-1.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 cursor-pointer"
-                          title="Cancelar visita"
-                        >
-                          <XCircle className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="lg:col-span-4 clinical-card rounded-3xl p-6 space-y-4">
-            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-[#0D9488]" />
-              Horarios de Atención
-            </h2>
-            <p className="text-xs text-slate-500">
-              Activa o desactiva los días permitidos para agendar visitas en la clínica.
-            </p>
-            <div className="space-y-2.5">
-              {horariosConfig.map((h) => (
-                <div
-                  key={h.id}
-                  className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between"
-                >
-                  <div>
-                    <p className="text-xs font-bold text-slate-900">{h.nombre_dia}</p>
-                    <p className="text-[11px] text-slate-500">
-                      {h.hora_inicio} - {h.hora_fin} ({h.capacidad_por_slot} cupos/hora)
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleToggleDiaHorario(h)}
-                    className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer ${
-                      h.activo
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-slate-200 text-slate-500 border-slate-300'
-                    }`}
-                  >
-                    {h.activo ? 'Abierto' : 'Cerrado'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* CONTENIDO PESTAÑA 4: HISTORIAL DE CONVERSACIONES */}
       {activeTab === 'logs' && (
         <div className="clinical-card rounded-3xl p-6 space-y-4">
@@ -658,13 +530,15 @@ export const AdminPanel: React.FC = () => {
                       : 'bg-purple-50/50 border-purple-200 text-slate-900'
                   }`}
                 >
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold mb-1">
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold mb-1.5">
                     <span>
                       {c.role === 'user' ? 'Familiar / Visitante' : 'Asistente CERSEA'} • Sesión: {c.session_id}
                     </span>
                     <span>{c.timestamp}</span>
                   </div>
-                  <p className="whitespace-pre-wrap text-xs sm:text-sm">{c.content}</p>
+                  <div className="text-xs sm:text-sm">
+                    <ChatMarkdownRenderer content={c.content} isUser={c.role === 'user'} />
+                  </div>
                 </div>
               ))}
             </div>

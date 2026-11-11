@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquare, X, Send, Wifi, WifiOff, Minimize2 } from 'lucide-react';
 import { cerseaApi, getWsBaseUrl } from '../services/api';
+import { ChatMarkdownRenderer } from './ChatMarkdownRenderer';
 
 interface ChatMsg {
   id: string;
@@ -19,108 +20,7 @@ interface OmnichannelChatWidgetProps {
 }
 
 const DEFAULT_WELCOME =
-  'Hola, bienvenida a CERSEA. Estamos aquí para escucharte y apoyarte. ¿Te gustaría información sobre un ingreso o prefieres agendar una visita?';
-
-/**
- * Renderizador limpio de Markdown para el Chat:
- * Elimina asteriscos crudos (**texto**, *texto*), guiones bajos (_texto_),
- * líneas divisoras (━━━) y convierte listas en elementos visuales limpios.
- */
-function renderInlineFormatting(line: string): React.ReactNode[] {
-  // Limpiar encabezados markdown ### o líneas decorativas
-  const cleaned = line.replace(/^#{1,4}\s+/, '');
-
-  // Tokenizar por **negrita**, `código`, *negrita/cursiva* y _cursiva_
-  const tokenRegex = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*|_[^_\n]+_)/g;
-  const parts = cleaned.split(tokenRegex);
-
-  return parts.map((part, idx) => {
-    if (!part) return null;
-    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-      return (
-        <strong key={idx} className="font-bold text-slate-900">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-      return (
-        <span
-          key={idx}
-          className="px-1.5 py-0.5 mx-0.5 rounded-md bg-purple-100 text-[#5B21B6] font-semibold text-xs"
-        >
-          {part.slice(1, -1)}
-        </span>
-      );
-    }
-    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-      return (
-        <strong key={idx} className="font-semibold text-slate-900">
-          {part.slice(1, -1)}
-        </strong>
-      );
-    }
-    if (part.startsWith('_') && part.endsWith('_') && part.length > 2) {
-      return (
-        <em key={idx} className="italic text-slate-600">
-          {part.slice(1, -1)}
-        </em>
-      );
-    }
-    // Limpiar asteriscos huérfanos mientras se está escribiendo en vivo (streaming)
-    return <span key={idx}>{part.replace(/\*\*/g, '').replace(/(^|\s)\*(?=\S)/g, '$1')}</span>;
-  });
-}
-
-function renderFormattedMessage(rawText: string, isUser: boolean): React.ReactNode {
-  if (isUser) {
-    return <span>{rawText}</span>;
-  }
-
-  const lines = rawText.split('\n');
-  return (
-    <div className="space-y-1.5">
-      {lines.map((line, i) => {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          return <div key={i} className="h-1" />;
-        }
-        // Si es una línea divisoria tipo ━━━━━━━
-        if (/^[━─=\-]{4,}$/.test(trimmed)) {
-          return <hr key={i} className="border-slate-200 my-1.5" />;
-        }
-        // Si es viñeta (- texto o • texto)
-        if (/^[-•]\s+/.test(trimmed)) {
-          const content = trimmed.replace(/^[-•]\s+/, '');
-          return (
-            <div key={i} className="flex items-start gap-2 pl-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#6D28D9] mt-2 shrink-0" />
-              <div className="flex-1">{renderInlineFormatting(content)}</div>
-            </div>
-          );
-        }
-        // Si es lista numerada (1. texto)
-        const numMatch = trimmed.match(/^(\d+\.)\s+(.*)$/);
-        if (numMatch) {
-          return (
-            <div key={i} className="flex items-start gap-2 pl-1">
-              <span className="font-bold text-[#6D28D9] text-xs mt-0.5 shrink-0">
-                {numMatch[1]}
-              </span>
-              <div className="flex-1">{renderInlineFormatting(numMatch[2])}</div>
-            </div>
-          );
-        }
-
-        return (
-          <p key={i} className="leading-relaxed">
-            {renderInlineFormatting(trimmed)}
-          </p>
-        );
-      })}
-    </div>
-  );
-}
+  'Hola, bienvenida a **CERSEA, A.C.** Estamos aquí para escucharte y apoyarte. ¿Te gustaría información sobre un ingreso o prefieres **agendar una visita**?';
 
 export const OmnichannelChatWidget: React.FC<OmnichannelChatWidgetProps> = ({
   isOpen,
@@ -401,7 +301,10 @@ export const OmnichannelChatWidget: React.FC<OmnichannelChatWidgetProps> = ({
                         : 'bg-white text-slate-700 border border-slate-200/80 rounded-bl-xs'
                     }`}
                   >
-                    {renderFormattedMessage(contentToRender, m.role === 'user')}
+                    <ChatMarkdownRenderer
+                      content={contentToRender}
+                      isUser={m.role === 'user'}
+                    />
                     {m.isStreaming && (
                       <span className="inline-block w-1.5 h-3.5 ml-1 align-middle bg-[#6D28D9] animate-pulse rounded-xs" />
                     )}

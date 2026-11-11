@@ -13,6 +13,16 @@
 
 ### Endpoints Públicos y Transaccionales (`/api/cersea`)
 
+#### 0. Servidor MCP (`cersea-agenda-mcp`)
+- **`GET /api/cersea/mcp/tools`**: Lista las 6 herramientas registradas en el MCP Server ([`mcp_server.py`](file:///c:/Users/Administrador/Desktop/3.%20Trabajo/Centro%20Cersea/backend/app/mcp_server.py)):
+  - `consulta_agenda`: Consulta horarios disponibles y cupos para una fecha específica o un rango de próximos días.
+  - `agendar`: Reserva una cita de valoración o visita familiar devolviendo folio `CERSEA-XXXXXXXX`.
+  - `buscar_cita`: Busca citas existentes por folio (`CERSEA-XXXX`), teléfono o nombre del familiar/interna.
+  - `reprogramar_cita`: Reprograma la fecha/hora de una cita existente verificando cupo en el nuevo bloque.
+  - `cancelar_cita`: Cancela una cita existente por folio o ID y libera inmediatamente su cupo.
+  - `consultar_informacion_cersea`: Consulta la base de conocimiento institucional (`cersea_knowledge`).
+- **`POST /api/cersea/mcp/execute`**: Ejecuta directamente cualquiera de las herramientas del MCP Server recibiendo `{"name": "<tool>", "arguments": {...}}`.
+
 #### 1. Healthcheck y Telemetría del Módulo CERSEA
 - **Método:** `GET`
 - **Ruta:** `/api/cersea/health`
@@ -61,6 +71,8 @@
       - **Con saldo:** Llama a OpenAI usando la Master API Key de SmartOps (o `api_key_override` si fue definido internamente en BD) e incrementa `mensajes_consumidos_mes` en `+1`.
       - **Sin saldo (Fallback por Saturación):** Intercepta la petición sin consumir tokens y devuelve: `"Por el momento nuestra línea de atención automatizada está saturada. Por favor, comunícate al 653 123 2800 o déjanos tus datos y te contactaremos."`
 - **`POST /api/cersea/credits/request-upsell`**: Registra una solicitud de ampliación de plan en `credit_upsell_requests` y dispara el webhook hacia SmartOps (`n8n` + alerta `ntfy`) para ampliar el paquete por `+$500 MXN`.
+- **`POST /api/cersea/credits/approve-topup`**: Suma `+creditos_extra` al `mensajes_limite_mes` del tenant en `business_configs` y marca el upsell como `Aprobado` (conectado con el Gestor de Tenants / n8n / Stripe; ver [recomendacion.md](file:///c:/Users/Administrador/Desktop/3.%20Trabajo/Centro%20Cersea/recomendacion.md)).
+- **`POST /api/cersea/credits/reset-cycle`**: Reinicia `mensajes_consumidos_mes` a `0` al comenzar un nuevo ciclo mensual.
 
 #### 5. Configuración de Personalidad e Instrucciones del Agente
 - **`GET /api/cersea/agent-config`**: Obtiene `role`, `tone`, `welcome_message` y `custom_instructions` del asistente (sin exponer credenciales de API Key al cliente).
@@ -73,8 +85,11 @@
 - **`DELETE /api/cersea/knowledge/{item_id}`**: Elimina un registro.
 - **`POST /api/cersea/knowledge/sync-rag`**: Genera embeddings con OpenAI (`text-embedding-3-small`) de toda la tabla `cersea_knowledge` e indexa los vectores en `documents` y `document_chunks` (`pgvector`) bajo `business_id = 'CERSEA'`.
 
-#### 7. Administración de Visitas, Horarios e Historial
-- **`GET /api/cersea/visitas`**: Lista las citas agendadas.
+#### 7. Administración y Manipulación Avanzada de Visitas, Horarios e Historial
+- **`GET /api/cersea/horarios/resumen`**: Resumen de disponibilidad y cupos libres de los próximos N días.
+- **`GET /api/cersea/visitas`**: Lista y filtra las citas agendadas (`estado`, `fecha`, `tipo_visita`, `q`).
+- **`PUT /api/cersea/visitas/{visita_id}`**: Reprograma la fecha/hora o edita los datos del familiar/interna/notas de una cita.
 - **`PATCH /api/cersea/visitas/{visita_id}/estado`**: Cambia el estado (`Pendiente`, `Confirmada`, `Cancelada`).
-- **`GET /api/cersea/horarios/config`** & **`PUT /api/cersea/horarios/config/{dia_semana}`**: Administra los días y horas habilitadas en `horarios_disponibles`.
+- **`DELETE /api/cersea/visitas/{visita_id}`**: Elimina una cita de la agenda.
+- **`GET /api/cersea/horarios/config`** & **`PUT /api/cersea/horarios/config/{dia_semana}`**: Administra los días, horas de apertura/cierre y capacidad por bloque en `horarios_disponibles`.
 - **`GET /api/cersea/conversations`**: Devuelve el historial de sesiones de `chat_histories` del tenant `CERSEA`.

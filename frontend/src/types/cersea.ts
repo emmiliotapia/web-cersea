@@ -16,6 +16,15 @@ export interface DisponibilidadDiaResponse {
   slots_disponibles: string[];
 }
 
+export interface ResumenDiaDisponibilidad {
+  fecha: string;
+  nombre_dia: string;
+  activo: boolean;
+  total_bloques_libres: number;
+  total_cupos_libres: number;
+  horas_disponibles: string[];
+}
+
 export interface HorarioConfigItem {
   id: string;
   dia_semana: number;
@@ -80,6 +89,12 @@ export interface TenantCreditsStatus {
   usa_master_key: boolean;
   plan_nombre: string;
   upsell_oferta: string;
+}
+
+export interface McpToolSchema {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
 }
 
 export interface ConversationMessage {

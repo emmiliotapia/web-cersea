@@ -45,4 +45,8 @@ yarn-debug.log*
 yarn-error.log*
 backend/fix_main.py
 backend/patch_smartops_core.py
+*.db
+*.sqlite
+*.sqlite3
+
 
